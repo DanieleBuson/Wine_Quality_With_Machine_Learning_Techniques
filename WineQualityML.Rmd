@@ -1,0 +1,1266 @@
+---
+title: "Machine Learning methods applied to Wine Quality"
+subtitle: "Analysis of the main aspects that concur to wine quality, using different machine learning techniques."
+author: "Goran Nikolov, Daniele Buson, Morteza Kiani Haftlang"
+date: "2023-04-10"
+output:
+  rmdformats::readthedown:
+    fig_width: 8
+    fig_height: 5
+    fig_caption: false
+    code_folding: hide
+    highlight: kate
+    lightbox: true
+    thumbnails: false
+    gallery: true
+    toc_depth: 5
+    embed_fonts: true
+    use_bookdown: true
+---
+
+```{r setup, results = FALSE, message = FALSE }
+## Options of this document
+
+#global chunks options
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+knitr::opts_chunk$set(message = TRUE)
+
+#option for chunk caching.
+cache = FALSE
+
+#option for figure caching.
+fig.cache = FALSE
+
+```
+
+```{r libraries, echo=TRUE, message=FALSE, warning=FALSE}
+
+##Libraries used in this project
+
+library(tidyverse)
+library(mgcv)
+library(plotly)
+library(GGally)
+library(gridExtra)
+library(DT)
+library(kernlab)
+library(neuralnet)
+library(e1071)
+library(caret)
+library(FSinR)
+library(nnet)
+library(modelr)
+```
+
+
+# Abstract
+The wine industry is a significant contributor to the global economy, with numerous stakeholders, including producers, consumers, and experts, constantly seeking to improve wine quality. In this context, an anonymous wine producer asked our group to analyse and define the quality of his products, comparing them with a comprehensive dataset containing diverse wine samples and their corresponding quality ratings. To reach the purpose, a deep analysis of physicochemical aspects and their relations was fundamental. In this article, there are three suggestions about how to develop a satisfying model to assess wine quality. 
+
+# Introduction {.tabset}
+Grape variety, climate, production techniques, and chemical composition are some of the factors that influence wine quality. To meet customers expectations and maintain the reputation, wine producers have to accurately assess the quality of their wine. 
+Traditional wine quality assessment methods rely on sensory evaluations of a sommelier, which could be expensive and affected by subjectivity. Therefore, machine learning can be a promising alternative to assess wine quality based on chemical properties, providing an objective approach. 
+
+The final aim of this project is to use machine learning techniques to build a predictive model that can assess the wine quality of our anonymous customer’s products. This project’s approach consists in understanding what physicochemical factors impact the most on wine quality and training three different machine learning algorithms to predict it. Using appropriate metrics, the results were evaluated. The resulting model can be used in the optimisation of the processes, as well as to assist consumers and retailers in selecting high quality wines. 
+
+## Context
+
+The goal of this study is to use machine learning techniques to estimate the quality of wine based on its physicochemical characteristics. In particular, our anonymous customer was searching for an efficient way to classify some of his products, based on a chemical analysis. 
+The development of a machine learning model to assess wine quality can offer an objective, effective, and economical method to enhance decision making for wine producers, customers and merchants. 
+
+## Cleaning the data:
+
+The definitive data frame is made using two datasets that represent red and white wine. These datasets are initially read using the read.csv function, with the sep argument choosing a semicolon separator. Then, these datasets are stored in the red_wine and white_wine variables.
+
+Data entry errors in the fields “volatile acidity” and “density” were fixed. In fact, in both categories the data were expressed in two different measurement units and have to be changed. This procedure helps to guarantee that the data are consistently arranged for examination. The program then purges the information and adds a new column with the name "Col" to the datasets for both red and white wine. This column is used to store the colour of the wine, which can be "Red" or "White". This process helps to distinguish the two varieties of wine when they are mixed in the subsequent steps.
+
+At the end of this code the wine dataframe is created by joining the cleaned datasets for red and white wine. The add_row method is used to merge the rows of the two databases. The structure of the combined dataframe wine is then shown using the str() method, giving an overview of the format and structure of the data.
+
+
+```{r data_cleansing, message=FALSE, warning=FALSE}
+red_wine <- read.csv("winequality-red.csv", header = TRUE)
+white_wine <- read.csv("winequality-white.csv", header = TRUE)
+
+red_wine[which(red_wine$volatile.acidity > 2), "volatile.acidity"] <- red_wine[which(red_wine$volatile.acidity > 2), "volatile.acidity"]/1000
+red_wine[which(red_wine$density > 2), "density"] <- red_wine[which(red_wine$density > 2), "density"]/1000
+
+white_wine[which(white_wine$volatile.acidity > 2), "volatile.acidity"] <- white_wine[which(white_wine$volatile.acidity > 2), "volatile.acidity"]/1000
+white_wine[which(white_wine$density > 2), "density"] <- white_wine[which(white_wine$density > 2), "density"]/1000
+
+red <- red_wine
+red["Col"] <- "Red"
+
+white <- white_wine
+white["Col"] <- "White"
+
+wine <- red
+wine <- add_row(wine, white)
+head(wine)
+```
+
+# General overview {.tabset}
+
+In this paragraph, the reader can have a general overview of the dataset. The data were grouped into different categories, such as acidity, sugars, sulfites, general physicochemical aspects, and quality. The reader can also find a correlation plot, to have a better understanding of how the variables correlate with each other. 
+
+## Corelation plot
+
+In this section, the reader can see a matrix where each cell represents a pairwise link between two variables from the dataset. The only column that is missing is the outcome, quality. The matrix is divided into three parts, the main diagonal represents the density of each variable. In the lower triangular matrix, the reader can see all the pairwise scatterplots, while in the upper triangular matrix are stated the pairwise Pearson coefficient values. 
+
+
+```{r  correlation_plot, echo=TRUE, fig.align="center", fig.width=10, fig.width=10, echo=TRUE, message=FALSE, warning=FALSE}
+ggpairs(wine,                 
+        columns = 1:11,       
+        aes(color = Col,
+            alpha = 0.5)) +
+  scale_fill_manual(values = c("#a2231d", "#e4d96f")) + 
+  scale_color_manual(values = c("#a2231d", "#e4d96f"))
+```
+
+## Acidity
+
+In this section, the reader can examine bar plots and boxplots regarding four pivotal measurements of acidity. In particular, in this project, the studied measurements are fixed and volatile acidity, the concentration of citric acid and chloride concentration.
+
+* Fixed Acidity: it corresponds to the set of low volatility organic acids such as malic, lactic, tartaric or citric acids. The measurement unit is g/L
+
+* Volatile Acidity: it corresponds to the set of short-chain organic acids that can be extracted from the sample through a distillation process: formic acid, acetic acid, propionic acid and butyric acid. The measurement unit is g/L.
+
+* Citric Acid: it is often added to wines to increase acidity in the wine-making process, complement a specific flavour or prevent ferric hazes. The measurement unit is g/L.
+
+* Chlorides: the concentration of chloride ions is generally indicative of the presence of sodium chloride5. Sodium chloride adds to the saltiness of a wine, which can contribute to or detract from the overall taste and quality of the wine. The concentration is measured in mg/L.
+
+
+The output can be examined to spot any potential variations in the chemical properties of red and white wines. For instance, the distributions of the fixed acidity and volatile acidity may differ significantly across red and white wines, although the concentrations of citric acid and chlorides may exhibit more minor variations. Combining bar plots and boxplots makes it easier to comprehend the variations in the distributions of different chemical properties, which might guide future research or feature choice in predictive modelling.
+
+```{r acidity_distribution, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+
+fixed_acidity_plot <- ggplot(data = wine, aes(x = fixed.acidity, fill = Col)) +
+  geom_bar(width = 0.25) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 13),
+    legend.position = "none"
+  ) +
+  facet_grid(~Col) +
+  ggtitle("Fixed Acidity Distribution") +
+  ylab("Frequency") +
+  xlab("Fixed Acidity")
+
+volatile_acidity_plot <- ggplot(data = wine, aes(x = volatile.acidity, fill = Col)) +
+  geom_bar(width = 0.05) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+     plot.title = element_text(color = "black", size = 13),
+    legend.position = "none"
+  ) +
+  facet_grid(~Col) +
+  ggtitle("Volatile Acidity Distribution") +
+  ylab("Frequency") +
+  xlab("Volatile Acidity")
+
+citric_acid_plot <- ggplot(data = wine, aes(x = citric.acid, fill = Col)) +
+  geom_bar(width = 0.05) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+     plot.title = element_text(color = "black", size = 13),
+    legend.position = "none"
+  ) +
+  facet_grid(~Col) +
+  ggtitle("Citric Acid Concentration Distribution") +
+  ylab("Frequency") +
+  xlab("Citric Acid Concentration")
+
+chlorides_plot <- ggplot(data = wine, aes(x = chlorides, fill = Col)) +
+  geom_bar(width = 0.03) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+     plot.title = element_text(color = "black", size = 13),
+    legend.position = "none"
+  ) +
+  facet_grid(~Col) +
+  ggtitle("Chlorides Distribution") +
+  ylab("Frequency") +
+  xlab("Chlorides")
+
+grid.arrange(fixed_acidity_plot, volatile_acidity_plot, citric_acid_plot, chlorides_plot, ncol = 2, nrow = 2)
+``` 
+The reader can see from the graphs the acidity measurements distribution. Fixed and Volatile Acidity, as well as Chlorides, are right skewed for both types of wine. The skewness could be crucial to gain insights about the impact that factors have on wine quality.
+
+```{r acidity_boxplot, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+fixed_acidity_boxplot <- ggplot(data = wine, aes(x = Col, y = fixed.acidity, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 13),
+    legend.position = "none"
+  ) +
+  ggtitle("Fixed Acidity Boxplot") +
+  ylab("Fixed Acidity") +
+  xlab("")
+
+volatile_acidity_boxplot <- ggplot(data = wine, aes(x = Col, y = volatile.acidity, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 13),
+    legend.position = "none"
+  ) +
+  ggtitle("Volatile Acidity Boxplot") +
+  ylab("Volatile Acidity") +
+  xlab("")
+
+citric_acid_boxplot <- ggplot(data = wine, aes(x = Col, y = citric.acid, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 13),
+    legend.position = "none"
+  ) +
+  ggtitle("Citrid Acid Concentration Boxplot") +
+  ylab("Citrid Acid Concentration") +
+  xlab("")
+
+chlorides_boxplot <- ggplot(data = wine, aes(x = Col, y = chlorides, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 13),
+    legend.position = "none"
+  ) +
+  ggtitle("Chlorides Concentration Boxplot") +
+  ylab("Chlorides Concentration") +
+  xlab("")
+
+grid.arrange(fixed_acidity_boxplot, volatile_acidity_boxplot, citric_acid_boxplot, chlorides_boxplot,
+             ncol = 2, nrow = 2)
+```
+
+From the boxplots above, the reader can distinguish between the chemical characteristics of red and white wine. In addition, through the boxplot analysis, it is possible to spot variations in the general distribution of data. Red wines have a greater median fixed acidity than white wines in the fixed acidity boxplot, and the IQR for red wines is likewise larger. With very equal IQR for both types of wines, the volatile acidity boxplot shows that red wines have a greater median volatile acidity than white wines. With a narrower IQR for white wines, the citric acid concentration boxplot shows that white wines have a higher median citric acid content than red wines. Moreover, the boxplot of the chloride concentration reveals that red wines have a wider interquartile range (IQR) than white wines and a greater median chloride concentration.
+
+## Residual Sugar 
+
+Residual sugar concentration plays a crucial role in wine sweetness. Moreover, it contributes to the overall taste and mouthfeel of wine. Different concentrations of residual sugar are categorised in different wine styles. 
+
+Wine sweetness levels can be classified into different categories based on their residual sugar content:
+
+* Bone dry: 0 - 1 g/L
+* Dry: 1 - 17 g/L
+* Off-dry: 17 - 35 g/L
+* Medium Sweet: 35 - 120 g/L
+* Sweet: 120 - 220+ g/L
+
+Residual sugar is usually measured in grams per litre (g/L) or as a percentage of the wine's total volume. Wines with higher residual sugar levels are considered sweeter, while those with lower levels are considered drier. The perception of sweetness, however, can be influenced by other factors such as acidity, tannins, and alcohol content.
+
+These categories provide a general guideline for understanding the sweetness of a wine, but the individual perception of sweetness may vary. In addition, it is necessary to specify that it is not the purpose of this project to work with different classes of residual sugar concentration. 
+
+```{r residual_sugar, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+residual_sugar_plot <- ggplot(data = wine, aes(x = residual.sugar, fill = Col)) +
+  geom_bar(width = 2) + 
+  facet_grid(~Col) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Residual Sugar Distribution") +
+  ylab("Frequency") +
+  xlab("Residual Sugar")
+residual_sugar_plot  
+
+residual_sugar_boxplot <- ggplot(data = wine, aes(x = Col, y = residual.sugar, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Residual Sugar Boxplot") +
+  ylab("Residual Sugar") +
+  xlab("")
+residual_sugar_boxplot
+```
+
+
+Above the reader can have a look at the distribution of the residual sugar in the dataset. In particular, the distribution seems to be right-skewed for both red and white wines. In addition, looking at the boxplots, a relevant aspect is that on average residual sugar concentration is higher in white wines.
+
+## Sulfates
+
+In wine-making sulphates, compounds containing sulphur, are often used to preserve the organoleptic properties of the wine. They prevent oxidation and bacterial growth, ensuring that the wine maintains its quality and freshness. 
+Throughout the fermentation process, sulphates are naturally produced. However, sometimes it happens that winemakers add them in the form of potassium metabisulfite or other sulphate salts.
+
+Although sulphates play an important role in preserving wine, their levels are regulated by law to ensure consumer safety.
+
+In this project, the focus is on two different types of sulphates:
+ 
+* Free Sulphur Dioxide: The free SO2 is the unreacted component of sulphur dioxide present in the wine. Chemically speaking, it is made up of mostly the molecular (SO2) and bisulfite (HSO3 -) forms. The measurement unit is mg/L.
+
+* Total Sulphur Dioxide: Total SO2 is the total amount of SO2 added, or the sum of the free and bound fractions. The measurement unit is 
+
+* Sulphates: In this case "Sulphates" states for potassium sulphates. In particular, the presence of potassium metabisulfite is fundamental in wine-making. It is an antioxidant and bactericide that releases sulphur dioxide into wine must. The measurement unit is g/L.
+
+```{r sulphates_distribution, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+free_dioxide_sulfur_plot <- ggplot(data = wine, aes(x = free.sulfur.dioxide, fill = Col)) +
+  geom_bar(width = 5) + 
+  facet_grid(~Col) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Free Sulfur Dioxide Concentration Distribution") +
+  ylab("Frequency") +
+  xlab("Free Sulfur Dioxide Concentration")
+
+total_dioxide_sulfur_plot <- ggplot(data = wine, aes(x = total.sulfur.dioxide, fill = Col)) +
+  geom_bar(width = 10) + 
+  facet_grid(~Col) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Total Sulfur Dioxide Concentration Distribution") +
+  ylab("Frequency") +
+  xlab("Total Sulfur Dioxide Concentration")
+
+sulfites_plot <- ggplot(data = wine, aes(x = sulphates, fill = Col)) +
+  geom_bar(width = .05) + 
+  facet_grid(~Col) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Sulfites Distribution") +
+  ylab("Frequency") +
+  xlab("Sulfites")
+
+grid.arrange(free_dioxide_sulfur_plot, total_dioxide_sulfur_plot, sulfites_plot, ncol = 1, nrow = 3)
+```
+
+
+```{r sulphates_boxplot, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+free_sulfur_dioxide_boxplot <- ggplot(data = wine, aes(x = Col, y = free.sulfur.dioxide, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none",
+    axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0))
+  ) +
+  ggtitle("Free Sulfur Dioxide Concentration Boxplot") +
+  ylab("Free Sulfur 
+       values") +
+  xlab("")
+
+total_sulfur_dioxide_boxplot <- ggplot(data = wine, aes(x = Col, y = total.sulfur.dioxide, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none",
+    axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0))
+  ) +
+  ggtitle("Total Sulfur Dioxide Concentration Boxplot") +
+  ylab("Total Sulfur 
+       values") +
+  xlab("")
+
+sulphates_boxplot <- ggplot(data = wine, aes(x = Col, y = sulphates, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none",
+    axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0))
+  ) +
+  ggtitle("Sulpfites Concentration Boxplot") +
+  ylab("Sulfites Concentration 
+       values") +
+  xlab("")
+
+grid.arrange(free_sulfur_dioxide_boxplot, total_sulfur_dioxide_boxplot, sulphates_boxplot, 
+             ncol = 1, nrow = 3)
+```
+
+The concentration of sulphates, as seen before, is right skewed for each category. In addition, the information that is available by looking at the boxplots is that the vast majority of the values are concentrated close to the median.
+
+## Other aspects
+
+Wine sugar, alcohol and other dissolved solids inside the wine are responsible for the density value of the wine. Density in wine-making is essential to gather information regarding the fermentation progress. 
+
+The pH scale is a universal measurement unit to define the acidity or basicity of a solution. 
+Wine’s pH depends on the impact of several factors such as grape variety, soil, environment, as well as methods employed. In addition, it is a common practice to alter the acidity levels, so the pH, to develop a particular taste or style. Understanding and controlling pH levels can aid winemakers in producing wines with the right flavour character and level of acidity.
+While acidity and pH are related, they are not interchangeable. A wine can have high acidity but relatively low pH if the acids present are weak, while a wine can have low acidity but high pH if the acids present are strong.
+
+The alcohol degree is a measure of the amount of alcohol present in a given volume of wine, expressed in percentage. It is essential in determining the wine’s body, texture, and balance.
+Generally, the alcohol degree ranges between the values of 5% to 20%. 
+
+
+```{r other_aspects_distribution, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+density_plot <- ggplot(data = wine, aes(x = density, fill = Col)) +
+  geom_bar(width = .0015) + 
+  facet_grid(~Col) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Density Distribution") +
+  ylab("Frequency") +
+  xlab("Density")
+
+pH_plot <- ggplot(data = wine, aes(x = pH, fill = Col)) +
+  geom_bar(width = .1) + 
+  facet_grid(~Col) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("pH Distribution") +
+  ylab("Frequency") +
+  xlab("pH")
+
+alcohol_plot <- ggplot(data = wine, aes(x = alcohol, fill = Col)) +
+  geom_bar(width = .5) + 
+  facet_grid(~Col) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Alcohol Degree Distribution") +
+  ylab("Frequency") +
+  xlab("Alcohol Degree")
+
+grid.arrange(density_plot, pH_plot, alcohol_plot, ncol = 1, nrow = 3)
+```
+
+```{r other_aspects_boxplot, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+density_boxplot <- ggplot(data = wine, aes(x = Col, y = density, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Density Boxplot") +
+  ylab("Density") +
+  xlab("")
+
+pH_boxplot <- ggplot(data = wine, aes(x = Col, y = pH, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("pH Boxplot") +
+  ylab("pH") +
+  xlab("")
+
+alcohol_boxplot <- ggplot(data = wine, aes(x = Col, y = alcohol, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Alcohol Degree Boxplot") +
+  ylab("Alcohol Degree") +
+  xlab("")
+
+grid.arrange(density_boxplot, pH_boxplot, alcohol_boxplot, ncol = 1, nrow = 3)
+```
+
+The reader can see how the results tend to concentrate close to the median values in each category. Another interesting aspect is the pH distribution of wine which is quite symmetrical for both types of wine. 
+
+## Quality
+
+Wine quality is a mixture of several elements: 
+
+* Acidity: The right balance of acidity is crucial for a wine's freshness, structure, and ageability.
+* Tannins: Tannins, mainly found in red wines, contribute to the wine's structure, texture, and ageing potential.
+* Sugar: The residual sugar in wine can affect its sweetness, body, and balance.
+* Alcohol: The alcohol content influences the wine's body, texture, and overall balance.
+* Aroma and flavour compounds: The wine's aroma and flavour profile are essential for its complexity, appeal, and distinctiveness. These compounds can come from the grapes, fermentation process, or ageing vessels.
+
+In summary, wine quality is a result of multiple factors in the production process, from grape cultivation to winemaking techniques. Attention to detail at each stage and a focus on maintaining balance and harmony among the various elements in the wine contribute to a high-quality end product.
+
+The provided code generates an interactive bar plot that shows the distribution of wine quality for red and white wines. A scale from 1 to 10 was used to rate the wine quality for both red and white wines. 
+
+
+```{r quality, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+quality_plot <- ggplot(data = wine, aes(x = quality, fill = Col)) +
+  geom_bar(width = .5) + 
+  facet_grid(~Col) +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Quality Distribution") +
+  ylab("Frequency") +
+  xlab("Quality")
+ggplotly(quality_plot)
+
+quality_boxplot <- ggplot(data = wine, aes(x = Col, y = quality, fill = Col)) +
+  geom_boxplot() +
+  scale_fill_manual(name  = "Type of wine: ",
+                    values = c("#a2231d", "#e4d96f")) +
+  theme(
+    plot.title = element_text(color = "black", size = 20),
+    legend.position = "none"
+  ) +
+  ggtitle("Quality Boxplot") +
+  ylab("Quality levels") +
+  xlab("")
+ggplotly(quality_boxplot)
+```
+
+The Quality plot provides a visual representation of the distribution of red and white wines based on their quality levels. We can observe that the majority of wines fall in the range of 5-7 for both red and white wines. The plot can help us gain insights into the quality of red and white wines and identify potential areas for improvement in wine production techniques.
+
+Since the categories are too unbalanced, in terms of sample size, it was decided to group the quality value into three subcategories:
+
+1. Low-quality wine: quality <= 5
+
+2. Mid-quality wine: 5 < quality <= 6
+
+3. High-quality wine: 7 <= quality <= 10 
+
+This simplification of the model can be problematic. However, it is the only logical solution to deal with such an unbalanced dataset. 
+
+```{r refactoring, echo=TRUE,  message=FALSE, warning=FALSE}
+red_wine[, "quality"] <- as.numeric(red_wine[, "quality"])
+
+for (i in 1:nrow(red_wine)){
+  if (red_wine[i, "quality"] <= 5){
+    red_wine[i, "quality"] = 1
+  }
+  else if (red_wine[i, "quality"] == 6){
+    red_wine[i, "quality"] = 2
+  }
+  else if(red_wine[i, "quality"] > 6){
+    red_wine[i,"quality"] = 3
+  }
+}
+
+red_wine[, "quality"] <- as.factor(red_wine[, "quality"])
+str(red_wine[, "quality"])
+table(red_wine[, "quality"])
+
+
+white_wine[, "quality"] <- as.numeric(white_wine[, "quality"])
+
+for (i in 1:nrow(white_wine)){
+  if (white_wine[i, "quality"] <= 5){
+    white_wine[i, "quality"] = 1
+  }
+  else if (white_wine[i, "quality"] == 6){
+    white_wine[i, "quality"] = 2
+  }
+  else if(white_wine[i, "quality"] > 6){
+    white_wine[i,"quality"] = 3
+  }
+}
+
+white_wine[, "quality"] <- as.factor(white_wine[, "quality"])
+str(white_wine[, "quality"])
+table(white_wine[, "quality"])
+```
+
+# Modelling {.tabset}
+
+In the modelling section, the aim is to answer our anonymous customer’s questions. The techniques that were employed to fulfil the task are various and depend on the requirements.
+
+These are the questions:
+
+1. “In the company, we would like to have control of the value of density during the process. Unfortunately, our machines can calculate only chemical concentrations during wine-making. Can you find an easy-to-understand model to estimate the density starting from physicochemical factors?”
+
+2. “Can you create a model that can predict the quality of a wine, given its physicochemical properties? If it is possible, what is the precision of the model, can we rely on it?”
+
+In the following subsections, the reader can find our strategy to succeed in satisfying our customer needs.
+
+## Linear Regression Model 
+
+**Red Wine**
+
+In this section, the aim is to answer the first question of our anonymous customer trying to keep it simple. In particular, linear regression can be an easy and very understandable way to address the problem. Therefore, two linear regression models were created. 
+
+The first one has as a response to the density, as our customer wanted, with two different predictors: pH and citric acid concentration. In addition, two cases were considered. In the first case, the linear model was not comprehensive of the interaction between pH and citric acid concentration while the second presents this feature. The models were compared using the method **ANOVA**.
+Moreover, the reader can consult the graph below to have a more clear idea of the situation.
+
+```{r linear_model_red_wine_summary, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+### Red Wine
+
+linear_model_3d_one_rw <- lm(data = red_wine, density ~ pH + citric.acid)
+summary(linear_model_3d_one_rw)
+
+linear_model_3d_one_rw_al <- lm(data = red_wine, density ~ pH * citric.acid)
+summary(linear_model_3d_one_rw_al)
+
+anova(linear_model_3d_one_rw, linear_model_3d_one_rw_al)
+```
+
+In this R output, the reader can check the summary of the linear regression for both cases, as well as the result of the model’s comparison.
+In this case, there is weak evidence to reject the null hypothesis. Therefore, to keep it simple, the first model is the chosen one (less complex, similar results).
+
+```{r linear_model_red_wine, echo=TRUE, fig.align="center", fig.cap="3D Scatterplot Model 1", message=FALSE, warning=FALSE}
+## There is enough evidence to consider only the second model.
+
+linear_plot_3d_one_rw <- plot_ly(data = red_wine, z= ~density, y= ~pH, x= ~citric.acid, 
+                              color= ~quality, 
+                              colors=c('#ffffb2','#fed976','#feb24c','#fd8d3c','#f03b20','#bd0026'),
+                              size = 0.2)
+linear_plot_3d_one_rw <- linear_plot_3d_one_rw %>% add_markers() %>% layout(scene = list(xaxis = list(title = 'Density'),
+                                                                                   
+                                                                                   yaxis = list(title = 'pH'),
+                                                                                   
+                                                                                   zaxis = list(title = 'Citric Acid Concentration')))
+linear_plot_3d_one_rw
+```
+
+The second model that was created to satisfy the needs of the client is a linear regression model that presents density as the response and predictors pH and fixed acidity concentration. Also, in this case, two models were created to differentiate the case with the interaction from the normal one.
+
+```{r linear_model_red_wine_two_summary, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+linear_model_3d_two_rw <- lm(data = red_wine, density ~ pH + fixed.acidity)
+summary(linear_model_3d_two_rw)
+
+linear_model_3d_two_rw_al <- lm(data = red_wine, density ~ pH * fixed.acidity)
+summary(linear_model_3d_two_rw_al)
+
+anova(linear_model_3d_two_rw, linear_model_3d_two_rw_al)
+```
+
+Above, the reader can have a look at the results. Both models seem to work well. However, when comparing the models with ANOVA it is clear that the second model is, in general, more appropriate (in this case, there is strong evidence to discard the null hypothesis).
+
+```{r linear_model_red_wine_two, echo=TRUE, fig.align="center", fig.cap="3D Scatterplot Model 2", message=FALSE, warning=FALSE}
+linear_plot_3d_two_rw <- plot_ly(data = red_wine, z= ~density, y= ~pH, x= ~fixed.acidity, 
+                              color= ~quality, 
+                              colors=c('#ffffb2','#fed976','#feb24c','#fd8d3c','#f03b20','#bd0026'),
+                              size = 0.2)
+linear_plot_3d_two_rw <- linear_plot_3d_two_rw %>% add_markers() %>% layout(scene = list(xaxis = list(title = 'Density'),
+                                                                                   
+                                                                                   yaxis = list(title = 'pH'),
+                                                                                   
+                                                                                   zaxis = list(title = 'Fixed Acidity')))
+linear_plot_3d_two_rw
+```
+
+Finally, we compared the resulting models.
+
+```{r linear_model_comparison_summary, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+anova(linear_model_3d_one_rw, linear_model_3d_two_rw_al)
+```
+
+As it was already clear from the previous summaries, the second model seems to be more performant. 
+
+To summarise, two different models were compared to find an appropriate result for calculating red wine density starting from other physicochemical parameters.
+The result is easy to understand. In addition, it works satisfactorily within the considered domain of the three variables. The R-2 and R-2 adjusted are around 50%, and the p-values for each category are extremely low, showing strong evidence to reject the null hypothesis.
+
+However, the reader is invited to use the Shiny dashboard to experiment with new solutions in the 3D space. The result that is presented in this section comes from the author's experiments and experiences with the dataset. If the readers can think of a different solution that can estimate the density, they are free to try.
+
+**White Wine**
+
+In the section above, the reader had the opportunity to go through our answer to the first question about red wines. Now the purpose is to perform the same process with white wine density as a response. As before, two linear regression models were considered.
+
+The first model presents two different predictors: residual sugar concentration and total sulphur dioxide. Moreover, the cases considered were two, a linear regression without predictors interaction, and a linear regression with predictors interaction.
+Also, in this case, ANOVA was the method used for the comparison.
+The reader can scroll through the document to see all the summaries.
+
+```{r linear_model_white_wine_summary, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+### White Wine
+
+linear_model_3d_one_ww <- lm(data = white_wine, density ~ residual.sugar + total.sulfur.dioxide)
+summary(linear_model_3d_one_ww)
+
+linear_model_3d_one_ww_al <- lm(data = white_wine, density ~ residual.sugar * total.sulfur.dioxide)
+summary(linear_model_3d_one_ww_al)
+
+anova(linear_model_3d_one_ww, linear_model_3d_one_ww_al)
+```
+
+In this case, there is enough evidence to reject the null hypothesis. As a consequence, the first model that has to be considered is the model with interaction.
+
+```{r linear_model_white_wine_first, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE, fig.cap="3D Scatterplot Model 1"}
+###White Wine
+linear_model_3d_one_ww <- lm(data = white_wine, density ~ residual.sugar + total.sulfur.dioxide)
+#summary(linear_model_3d_one_ww)
+
+linear_plot_3d_one_ww <- plot_ly(data = white_wine, z= ~density, y= ~residual.sugar, x= ~total.sulfur.dioxide, 
+                                 color= ~quality, 
+                                 colors=c('#ffffb2','#fed976','#feb24c','#fd8d3c','#f03b20','#bd0026'),
+                                 size = 0.2)
+linear_plot_3d_one_ww <- linear_plot_3d_one_ww %>% add_markers() %>% layout(scene = list(xaxis = list(title = 'Total Sulfur Dioxide'),
+                                                                                         
+                                                                                         yaxis = list(title = 'Residual Sugar Concentration'),
+                                                                                         
+                                                                                         zaxis = list(title = 'Density')))
+linear_plot_3d_one_ww
+
+```
+
+The second model presents density as the response and residual sugar concentration and alcohol degree as predictors. Two different types of models were created to differentiate the case with the interaction from the normal one.
+
+```{r linear_model_white_wine_summary_2, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+linear_model_3d_two_ww <- lm(data = white_wine, density ~ alcohol + residual.sugar)
+summary(linear_model_3d_two_ww)
+
+linear_model_3d_two_ww_al <- lm(data = white_wine, density ~ alcohol * residual.sugar)
+summary(linear_model_3d_two_ww_al)
+
+anova(linear_model_3d_two_ww, linear_model_3d_two_ww_al)
+```
+
+The results in this case are impressive, the data seems to fit a plane perfectly. The R2 and R2 adjusted are around 90%, meaning that almost all the variance is explained by the models. Comparing the results with Anova led us to select the second model, the one with interaction.
+
+```{r linear_model_white_wine_second, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE, fig.cap="3D Scatterplot Model 2"}
+linear_plot_3d_two_ww <- plot_ly(data = white_wine, z= ~density, y= ~residual.sugar, x= ~alcohol, 
+                                 color= ~quality, 
+                                 colors=c('#ffffb2','#fed976','#feb24c','#fd8d3c','#f03b20','#bd0026'),
+                                 size = 0.2)
+linear_plot_3d_two_ww <- linear_plot_3d_two_ww %>% add_markers() %>%
+  layout(scene = list(xaxis = list(title = 'Residual Sugar Concentration'),
+                      yaxis = list(title = 'Alcohol'),
+                      zaxis = list(title = 'Density')))
+linear_plot_3d_two_ww
+```
+
+In this specific case, the resulting models were both appropriate enough to model reality.
+However, the second model was selected, since the R2 and R2 adjusted values are close to 1.
+
+Also, in this case, the readers are invited to try their ideas and suggestions on the Shiny dashboard.
+
+## Non Linear models
+
+In the Non-Linearities chapter, the final aim is still to answer the first question of our anonymous customer. The methodology is always the same, finding an easy linear model that can be used to estimate the density parameter based on the physicochemical properties of the wine. 
+
+The section will follow the following structure for both wine types considered:
+
+1. Polynomial relationship in the Linear Model
+
+2. Regression and Smooth Splines
+
+3. Generalised Additive Model
+
+**Red wine**
+
+In this paragraph, the reader will find the exact steps followed to reach a solution that could be satisfactory. The response is always the density. However, in this case, the predictors can be squared using the **I( )** or **poly( )** functions.
+This methodology could be useful to understand if it is possible to create a slightly more complex model (quadratic polynomials) that may generate a more precise estimation of the density parameter.
+
+In the first part, five different models are evaluated. In particular, there is a summary for every possible combination of I( ),  poly( ) and linear terms.
+In the end, the two models with better R2 adjusted were extracted and compared using ANOVA.
+
+```{r quadratic_moodel1, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+quadratic_model_one_rw_1 <- lm(density ~ pH + poly(citric.acid, 2), data = red_wine)
+summary(quadratic_model_one_rw_1) 
+
+quadratic_model_one_rw_2 <- lm(density ~ pH + I(citric.acid**2), data = red_wine)
+summary(quadratic_model_one_rw_2) 
+
+quadratic_model_one_rw_3 <- lm(density ~ poly(pH, 2) + poly(citric.acid, 2), data = red_wine)
+summary(quadratic_model_one_rw_3) 
+
+quadratic_model_one_rw_4 <- lm(density ~ poly(pH, 2) + citric.acid, data = red_wine)
+summary(quadratic_model_one_rw_4) 
+
+quadratic_model_one_rw_5 <- lm(density ~ I(pH**2) + citric.acid, data = red_wine)
+summary(quadratic_model_one_rw_5) 
+
+## extract top results
+anova(quadratic_model_one_rw_2, quadratic_model_one_rw_3)
+```
+
+The result shows that the better model is the number three, the one with a second-grade polynomial for each predictor.
+
+Subsequently, other five models are created. After careful consideration, model number one and model number three were tested with the ANOVA method. 
+
+```{r quadratic_moodel2, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+quadratic_model_two_rw_1 <- lm(density ~ pH + poly(fixed.acidity, 2), data = red_wine)
+summary(quadratic_model_two_rw_1) 
+
+quadratic_model_two_rw_2 <- lm(density ~ pH + I(fixed.acidity**2), data = red_wine)
+summary(quadratic_model_two_rw_2) 
+
+quadratic_model_two_rw_3 <- lm(density ~ poly(pH, 2) + poly(fixed.acidity, 2), data = red_wine)
+summary(quadratic_model_two_rw_3) 
+
+quadratic_model_two_rw_4 <- lm(density ~ poly(pH, 2) + fixed.acidity, data = red_wine)
+summary(quadratic_model_two_rw_4) 
+
+quadratic_model_two_rw_5 <- lm(density ~ I(pH**2) + fixed.acidity, data = red_wine)
+summary(quadratic_model_two_rw_5) 
+
+## extract top results
+anova(quadratic_model_two_rw_1, quadratic_model_two_rw_3)
+```
+
+In the end, model number one was selected, since there was no evidence to discard the null hypothesis with a p-value on the F-statistic around 9%. 
+
+Below, the reader can have a look at the graphs representing the models from above. In particular, in the first graph, both x and y-axis values are squared, while in the second one, only the y-axis is squared, following the resulting model above.
+
+```{r quadratic_moodel_plot1, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE, fig.cap="Both Predictors squared Scatterplot 3D, Model 1"}
+quadratic_plot_3d_one_rw <- plot_ly(data = red_wine, z= ~density, y= ~pH**2, x= ~citric.acid**2, 
+                                 color= ~quality, 
+                                 colors=c('#ffffb2','#fed976','#feb24c','#fd8d3c','#f03b20','#bd0026'),
+                                 size = 0.2)
+quadratic_plot_3d_one_rw <- quadratic_plot_3d_one_rw  %>% add_markers() %>% layout(scene = list(xaxis = list(title = 'Citric Acid Concentration'),
+                                                                                         
+                                                                                         yaxis = list(title = 'pH'),
+                                                                                         
+                                                                                         zaxis = list(title = 'Density'))) 
+quadratic_plot_3d_one_rw
+```
+
+```{r quadratic_moodel_plot2, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE, fig.cap="Fixed Acidity Predictor squared Scatterplot 3D, Model 2"}
+quadratic_plot_3d_two_rw <- plot_ly(data = red_wine, z= ~density, y= ~pH, x= ~fixed.acidity**2, 
+                                 color= ~quality, 
+                                 colors=c('#ffffb2','#fed976','#feb24c','#fd8d3c','#f03b20','#bd0026'),
+                                 size = 0.2)
+quadratic_plot_3d_two_rw <- quadratic_plot_3d_two_rw  %>% add_markers() %>% layout(scene = list(xaxis = list(title = 'Fixed Acidity'),
+                                                                                         
+                                                                                         yaxis = list(title = 'pH'),
+                                                                                         
+                                                                                         zaxis = list(title = 'Density'))) 
+quadratic_plot_3d_two_rw
+```
+
+For the sake of completeness, the reader can have a look at the GAM model for each linear relationship that was discussed above.
+
+GAM (Generalised Additive Model) is a generalised linear model in which the response depends linearly on the unknown smooth function(s( )) of the predictors.
+In the output, the reader can go through the column edf (effective degree of freedom). The values in this column represent the complexity of the smooth (for example, an edf of 1 stands for a straight line, edf of 2 for a quadratic curve and so on…). Columns "Ref.df" and “F” contain the results of ANOVA tests to check the overall significance of a specific smooth.
+Finally, the column containing p-values shows the significance of smooth terms.
+
+Another additional information is related to the distribution family of GAM and the link function. In this case, the link function was the identity function, while the big assumption here is that our data are normally distributed (Gaussian). This assumption is fundamental, however, it is not entirely true.
+
+For these reasons, the aim of this part is just to provide a more complex modelling method to the readers, who can decide if they want to deepen the topic on their own. In conclusion, this method will not be considered when answering our anonymous customer.
+
+```{r non_linear_red_wine, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+gam_model_one_rw <- gam(density ~ s(pH) + s(citric.acid), data = red_wine)
+summary(gam_model_one_rw)
+
+plot(gam_model_one_rw, residuals = TRUE, cex = 2)
+
+gam_model_one_rw <- gam(density ~ s(pH) + s(fixed.acidity), data = red_wine)
+summary(gam_model_one_rw)
+
+plot(gam_model_one_rw, residuals = TRUE, cex = 2)
+```
+
+
+
+**White wine**
+
+In this paragraph, it is possible to see the same procedure applied above to red wines. In this case, the dataset contains all the records of white wines. As before, the reader needs to understand that the aim is to keep it simple since a model that is too complex can be misleading. Therefore, using the function I( ) and poly( ), five different models are tested.  
+
+In the first part, the most performing model is the number three. The result is reached by using the method ANOVA. The model is using for both predictors the quadratic polynomial function. The R2 adjusted is around 76% and the p-values are all significant.
+
+```{r quadratic_moodel1_ww, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+quadratic_model_one_ww_1 <- lm(density ~ residual.sugar + poly(total.sulfur.dioxide, 2), data = white_wine)
+summary(quadratic_model_one_ww_1) #.7482
+
+quadratic_model_one_ww_2 <- lm(density ~ residual.sugar + I(total.sulfur.dioxide**2), data = white_wine)
+summary(quadratic_model_one_ww_2) #.7448
+
+quadratic_model_one_ww_3 <- lm(density ~ poly(residual.sugar, 2) + poly(total.sulfur.dioxide, 2), data = white_wine)
+summary(quadratic_model_one_ww_3) #7582
+
+quadratic_model_one_ww_4 <- lm(density ~ poly(residual.sugar, 2) + total.sulfur.dioxide, data = white_wine)
+summary(quadratic_model_one_ww_4) #.7582
+
+quadratic_model_one_ww_5 <- lm(density ~ I(residual.sugar**2) + total.sulfur.dioxide, data = white_wine)
+summary(quadratic_model_one_ww_5) #.6859
+
+## extract top results
+anova(quadratic_model_one_ww_3, quadratic_model_one_ww_4)
+```
+
+In the second chunk of code, the resulting model is the number four, which uses the quadratic polynomial function only on residual sugar concentration. The results are quite significant, showing that the R2 adjusted is around 92% and, looking at the p-value, all the predictors seem to be relevant for the model. 
+
+```{r quadratic_moodel2_ww, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+quadratic_model_two_ww_1 <- lm(density ~ residual.sugar + poly(alcohol, 2), data = white_wine)
+summary(quadratic_model_two_ww_1) #.908
+
+quadratic_model_two_ww_2 <- lm(density ~ residual.sugar + I(alcohol**2), data = white_wine)
+summary(quadratic_model_two_ww_2) #.9079
+
+quadratic_model_two_ww_3 <- lm(density ~ poly(residual.sugar, 2) + poly(alcohol, 2), data = white_wine)
+summary(quadratic_model_two_ww_3) #9195
+
+quadratic_model_two_ww_4 <- lm(density ~ poly(residual.sugar, 2) + alcohol, data = white_wine)
+summary(quadratic_model_two_ww_4) #.9184
+
+quadratic_model_two_ww_5 <- lm(density ~ I(residual.sugar**2) + alcohol, data = white_wine)
+summary(quadratic_model_two_ww_5) #.8787
+
+## extract top results
+anova(quadratic_model_two_ww_3, quadratic_model_two_ww_4)
+```
+
+Below, the reader can see two different graphs representing somehow the models from above.
+
+```{r non_linear_white_wine_model1, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE, fig.cap="Predictors squared Scatterplot 3D, Model 1"}
+quadratic_plot_one_ww <- plot_ly(data = white_wine, z= ~density, y= ~residual.sugar**2, x= ~total.sulfur.dioxide**2, 
+                              color= ~quality, 
+                              colors=c('#ffffb2','#fed976','#feb24c','#fd8d3c','#f03b20','#bd0026'),
+                              size = 0.2)
+quadratic_plot_one_ww <- quadratic_plot_one_ww  %>% add_markers() %>% layout(scene = list(xaxis = list(title = 'Total Sulphur Dioxide Concentration squared'),
+                                                                                    
+                                                                                    yaxis = list(title = 'Residual Sugar Concentration squared'),
+                                                                                    
+                                                                                    zaxis = list(title = 'Density'))) 
+quadratic_plot_one_ww
+```
+```{r non_linear_white_wine_model2, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE, fig.cap = "Residual Sugar predictor squared Scatterplot 3D, Model 2"}
+quadratic_plot_two_ww <- plot_ly(data = white_wine, z= ~density, y= ~residual.sugar**2, x= ~alcohol, 
+                              color= ~quality, 
+                              colors=c('#ffffb2','#fed976','#feb24c','#fd8d3c','#f03b20','#bd0026'),
+                              size = 0.2)
+quadratic_plot_two_ww <- quadratic_plot_two_ww  %>% add_markers() %>% layout(scene = list(xaxis = list(title = 'Alcohol Degree'),
+                                                                                    
+                                                                                    yaxis = list(title = 'Residual Sugar Concentration squared'),
+                                                                                    
+                                                                                    zaxis = list(title = 'Density'))) 
+quadratic_plot_two_ww
+
+```
+
+Also, in this case, the GAMs were created for completeness. These models can give a technical audience a tool to interpret and understand the results. To all the others, the suggestion is, if interested, to read the documentation at the end of the document. However, as specified previously, these models are not going to be considered when answering the problem’ question.
+
+```{r gam_model_ww, echo=TRUE, fig.align="center", message=FALSE, warning=FALSE}
+gam_model_one_ww <- gam(density ~ s(residual.sugar) + s(total.sulfur.dioxide), data = white_wine)
+summary(gam_model_one_ww)
+
+plot(gam_model_one_ww, residuals = TRUE, cex = 2)
+
+gam_model_two_ww <- gam(density ~ s(residual.sugar) + s(alcohol), data = white_wine)
+summary(gam_model_two_ww)
+
+plot(gam_model_two_ww, residuals = TRUE, cex = 2)
+```
+
+In this case, it is interesting to have a look at the results. Especially in the second game model, the summary indicates that the estimated degree of freedom for alcohol is around 7. However, from the graph, it is clear how a degree of 7 would overfit the data that are distributed along a line (grade 1 as in the resulting model from above). In addition, the residual sugar distribution seems to follow a parabolic distribution. Again, it is in line with the results using poly. 
+
+## GLM
+
+GLM stands for Generalised Linear Model. This is an advanced statistical modelling technique as well as a flexible generalisation of ordinary linear regression. It is an umbrella term that encompasses many other models.
+
+In this project, the GLM method employed is the multinomial logistic regression.
+Through this method, it is possible to create a model to predict and estimate wine quality, starting from physicochemical properties.
+Therefore, this model should be considered when answering the second question of the project.
+
+To be more precise, a multinomial logistic regression is a classification method that generalises logistic regression to multiclass problems.
+In this project, the aim is to classify wine quality, given a set of independent variables. These variables are the physicochemical properties of the wine.
+
+**Red wine**
+
+In this section, the reader can see the process of model creation. 
+As mentioned above, the first examined model is the multinomial logistic regression. 
+
+It is important to specify that, in this case, the data partition created is used also in the next steps, for the SVM model and the ANN. 
+In addition, some precautions have to be specified:
+
+1. to enhance the experiment's reproducibility, it is necessary to use the function "set.seed( )" to the same values as in the code.
+
+2. the percentage of train data is 75%, while the remaining 25% constitutes the test datasets (one for testing and one for prediction).
+
+3. the quality values have to be treated as "factor" in R. It is nonsensical to use a "numeric" data type.
+
+Before going through the results, it is important to specify how to measure the significance of a model:
+
+1. Accuracy: accuracy is the fraction of predictions our model got right. 
+
+2. Precision: precision attempts to answer the following question: What proportion of identifications was correct? The calculation is precision = (true positive)/(true positive + false positive)
+
+3. Recall: recall attempts to answer the following question: What proportion of actual positives was identified correctly? The calculation is recall = (true positive)/(true positive + false negative)
+
+4. F1 Score: F1 score is a machine learning evaluation metric that measures a model's accuracy. It combines the precision and recall scores of a model. 
+
+```{r multinomial_red, echo=TRUE, message=FALSE, warning=FALSE}
+red_wine[, "quality"] <- as.factor(red_wine[, "quality"])
+
+set.seed(123)
+indices <- createDataPartition(red_wine$quality, p = .75, list = F)
+train_rw <- red_wine %>% slice(indices)
+
+test_in_rw <- red_wine %>% slice(-indices) %>% select(-quality)
+test_truth_rw <- red_wine %>% slice(-indices) %>% pull(quality)
+
+multinomial_logistic_model_rw <- multinom(quality~ ., data = train_rw)
+prediction_multinomial_model_rw <- predict(multinomial_logistic_model_rw, test_in_rw)
+
+testing_rw_predictions <- confusionMatrix(prediction_multinomial_model_rw, test_truth_rw, mode = "everything")
+testing_rw_predictions
+```
+
+The result shows an accuracy of around 63%.
+Looking at the precision and recall, it is clear that the model works discretely only for the first class, where the F1 score is around 72%. However, both the second and third classes present F1 scores of around 50%.
+To summarise, the model will be taken into account in the final discussion. However, its performances are not excellent.
+
+**White wine**
+
+In the script below, a multinomial logistic regression is applied to the dataset containing white wine data.
+
+As before, the data partition will be used in the following section to deal with white wine dataset.
+
+```{r multinomial_white, echo=TRUE, message=FALSE, warning=FALSE}
+white_wine[, "quality"] <- as.factor(white_wine[, "quality"])
+
+set.seed(123)
+indices <- createDataPartition(white_wine$quality, p = .75, list = F)
+train_ww <- white_wine %>% slice(indices)
+
+test_in_ww <- white_wine %>% slice(-indices) %>% select(-quality)
+test_truth_ww <- white_wine %>% slice(-indices) %>% pull(quality)
+
+multinomial_logistic_model_ww <- multinom(quality~ ., data = train_ww)
+prediction_multinomial_model_ww <- predict(multinomial_logistic_model_ww, test_in_ww)
+
+testing_ww_predictions <- confusionMatrix(prediction_multinomial_model_ww, test_truth_ww, mode = "everything")
+testing_ww_predictions
+```
+
+In this case, the results seem to be not too significant. In particular, the accuracy is around 56% and the F1 scores are lower than 60% for each category. The worst result is reached in the third class, in which the F1 is around 45%
+
+## SVM 
+
+Support Vector Machines (SVM) are supervised learning models with associated learning algorithms to analyse data for classification and regression.
+This classifier can be used to perform linear classification, as well as non-linear classification using the kernel trick, mapping the inputs into high-dimensional feature spaces.
+
+In this project, SVM is used to answer our anonymous customer’ second question. In particular, the algorithm will try to predict wine quality using as independent variables all the other physicochemical properties of the wine.
+
+For what concerns the implementation, the parameters of the model were boosted using the **tune( )** function. Afterwards, the model is trained and tested on the data partition created in the section before.
+
+```{r svm_red, echo=TRUE, message=FALSE, warning=FALSE}
+# tune_out_linear <- tune(svm, quality~., data = train_rw, kernel = "linear",
+#                         ranges = list(cost = c(0.1,1,10,30)))
+# tune_out_linear$best.model
+# 
+# tune_out_radial <- tune(svm, quality~., data = train_rw, kernel = "radial",
+#                         ranges = list(cost = c(0.1,1,10),
+#                                       gamma = c(0.5,1,2,3,4)))
+# tune_out_radial$best.model
+# tune_out_radial$best.model$gamma
+
+# create the svm model (LINEAR) 
+
+red_wine_svm_linear_rw <- svm(quality~ ., train_rw, kernel = "linear", 
+                              scale = TRUE, cost = 0.1)
+
+test_pred_linear_rw <- predict(red_wine_svm_linear_rw, test_in_rw)
+
+confusion_matrix_linear_rw <- confusionMatrix(test_pred_linear_rw, test_truth_rw, mode = "everything")
+confusion_matrix_linear_rw
+
+## Second model, RADIAL
+
+red_wine_svm_radial_rw <- svm(quality~ ., train_rw, kernel = "radial", gamma = 0.5,
+                              scale = TRUE, cost = 1)
+
+test_pred_radial_rw <- predict(red_wine_svm_radial_rw, test_in_rw)
+
+confusion_matrix_radial_rw <- confusionMatrix(test_pred_radial_rw, test_truth_rw, mode = "everything")
+confusion_matrix_radial_rw
+```
+
+The result for the linear kernel SVM has to be discarded. The model has an accuracy of almost 60%, however, it is not able to correctly classify elements of the third group. Therefore, it is not possible to discuss F1 score, since not all the categories present this feature.
+ 
+On the other hand, the radial kernel SVM is way more accurate. The accuracy is around 70%, the F1 score for the first class is more than 75%. As before, the third class presents an F1 score that is lower than the expectations. However, in this case, at least the precision seems to be quite significant. 
+ 
+**White wine**
+
+The process is iterated for white wines. The model parameters are boosted using the function tune( ). Afterwards, two models were built. The first one is linear, the second one is radial.
+
+```{r svm_white, echo=TRUE, message=FALSE, warning=FALSE}
+# tune_out_linear <- tune(svm, quality~., data = train_ww, kernel = "linear",
+#                         ranges = list(cost = c(0.1,1,10,30)))
+# tune_out_linear$best.model
+# 
+# tune_out_radial <- tune(svm, quality~., data = train_ww, kernel = "radial",
+#                         ranges = list(cost = c(0.1,1,10),
+#                                       gamma = c(0.5,1,2,3,4)))
+# tune_out_radial$best.model
+# tune_out_radial$best.model$gamma
+
+# create the svm model (LINEAR) 
+
+white_wine_svm_linear_ww <- svm(quality~ ., train_ww, kernel = "linear", 
+                              scale = TRUE, cost = 30)
+
+test_pred_linear_ww <- predict(white_wine_svm_linear_ww, test_in_ww)
+
+confusion_matrix_linear_ww <- confusionMatrix(test_pred_linear_ww, test_truth_ww, mode = "everything")
+confusion_matrix_linear_ww
+
+## Second model, RADIAL
+
+white_wine_svm_linear_ww <- svm(quality~ ., train_ww, kernel = "radial", 
+                              scale = TRUE, cost = 10, gamma = 0.5)
+
+test_pred_linear_ww <- predict(white_wine_svm_linear_ww, test_in_ww)
+
+confusion_matrix_linear_ww <- confusionMatrix(test_pred_linear_ww, test_truth_ww, mode = "everything")
+confusion_matrix_linear_ww
+```
+
+As before the linear kernel SVM has to be discarded. The main reason is the absence of values predicted in the third class. This aspect may generate some problems in interpreting the model. Moreover, the result accuracy and F1 scores are not significant.  
+
+On the contrary, the radial kernel model seems to be stable. It has an accuracy and F1 score for each class of around 70%. 
+
+**Cross Validation**
+
+In this subsection, a method to confirm the results is introduced.
+Cross Validation is a resampling method that uses different chunks of data to test and train a model on different iterations. 
+In this case, the function **crossv_kfold( )** is responsible for randomly selecting k "train and test" samples. 
+Afterwards, three models are created, one for each training dataset. Lastly, the key figures and parameters of these three new SVM models are compared to understand which model performed best. 
+From the summary and confusion matrix below, the reader can form an opinion on how diverse can be the results for each category. 
+
+This section aims to show the reader how to implement a cross-validation process. Therefore, only the example of red wine is introduced.
+The samples created are three.
+
+```{r cv_example, eval=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+## cross validation example
+
+cross_validation_samples <- crossv_kfold(red_wine, k = 3)
+train_cv_1 <- as.data.frame(cross_validation_samples$train$'1')
+train_cv_2 <- as.data.frame(cross_validation_samples$train$'2')
+train_cv_3 <- as.data.frame(cross_validation_samples$train$'3')
+
+test_cv_1 <- as.data.frame(cross_validation_samples$test$'1')
+test_cv_2 <- as.data.frame(cross_validation_samples$test$'2')
+test_cv_3 <- as.data.frame(cross_validation_samples$test$'3')
+#model 1
+red_wine_svm_radial_rw <- svm(quality~ ., train_cv_1, kernel = "radial", gamma = 0.5,
+                              scale = TRUE, cost = 10)
+
+test_pred_radial_rw <- predict(red_wine_svm_radial_rw, test_cv_1[,1:11])
+
+confusion_matrix_radial_rw <- confusionMatrix(test_pred_radial_rw, test_cv_1[,12], mode = "everything")
+confusion_matrix_radial_rw
+#model 2
+red_wine_svm_radial_rw <- svm(quality~ ., train_cv_2, kernel = "radial", gamma = 0.5,
+                              scale = TRUE, cost = 10)
+
+test_pred_radial_rw <- predict(red_wine_svm_radial_rw, test_cv_2[,1:11])
+
+confusion_matrix_radial_rw <- confusionMatrix(test_pred_radial_rw, test_cv_2[,12], mode = "everything")
+confusion_matrix_radial_rw
+#model 3
+red_wine_svm_radial_rw <- svm(quality~ ., train_cv_3, kernel = "radial", gamma = 0.5,
+                              scale = TRUE, cost = 10)
+
+test_pred_radial_rw <- predict(red_wine_svm_radial_rw, test_cv_3[,1:11])
+
+confusion_matrix_radial_rw <- confusionMatrix(test_pred_radial_rw, test_cv_3[,12], mode = "everything")
+confusion_matrix_radial_rw
+```
+
+## ANN 
+
+For completeness, the reader can have a look at the implementation of an ANN. 
+ANNs are computing systems inspired by the biological neural networks that constitute animal brains. This is a supervised learning method to analyse data for classification and regression. 
+
+In this project, a possible implementation of the ANN model is mentioned. However, the complexity behind the scenes makes it difficult to apply and interpret the models. Therefore, this section is more about showing the reader a possible implementation of a solution rather than a real suggestion. 
+
+
+To be more specific, the neural networks created in this section present three hidden neurons and four layers. However, the complexity can be exponentially increased. What is truly problematic is defining the number of layers and what is working behind the function **neuralnet ( )**.
+In addition, an obstacle is finding the right threshold for the model to work. 
+
+The reader can discover this aspect directly in the code below.
+
+```{r ann, eval=TRUE, message=FALSE, warning=FALSE, include=TRUE, cache=TRUE}
+###RED WINE
+set.seed(123)
+
+neural_net_model_rw <- neuralnet(quality~ ., train_rw, hidden = c(3,4), threshold = 0.5)
+
+prediction_neural_net_model_rw <- compute(neural_net_model_rw, test_in_rw)
+prediction_neural_net_model_rw <- apply(prediction_neural_net_model_rw$net.result, 1, which.max)
+prediction_neural_net_model_rw <- factor(levels(test_truth_rw)[prediction_neural_net_model_rw], levels = levels(test_truth_rw))
+confusion_matrix_nn_rw <- confusionMatrix(prediction_neural_net_model_rw, test_truth_rw,mode = "everything")
+confusion_matrix_nn_rw
+
+###WHITE WINE
+# set.seed(123)
+
+neural_net_model_ww <- neuralnet(quality~ ., train_ww, hidden = c(3,4), threshold = 0.5)
+
+prediction_neural_net_model_ww <- compute(neural_net_model_ww, test_in_ww)
+prediction_neural_net_model_ww <- apply(prediction_neural_net_model_ww$net.result, 1, which.max)
+prediction_neural_net_model_ww <- factor(levels(test_truth_ww)[prediction_neural_net_model_ww], levels = levels(test_truth_ww))
+confusion_matrix_nn_ww <- confusionMatrix(prediction_neural_net_model_ww, test_truth_ww, mode = "everything")
+confusion_matrix_nn_ww
+```
+
+
+The results for the red wine dataset are close to the multinomial logistic regression. In particular, the first category seems to be well predicted (F1 score of 70%) while the other two classes are less significant.
+
+For what concerns white wine, the situation is even worse. The greatest percentage of F1 score is around 57% for the first class. In addition, the accuracy of the model is just above 52%.
+
+# Conclusion 
+
+To summarise, in this project, the aim was to implement some models to deliver the most simple and usable answers to our anonymous customers.
+In particular, the document goes through a different set of Machine Learning tools, from simple Linear Regression to more advanced methods, such as SVM or ANN.
+The project structure is divided into two parts. The first is this technical document. It is not addressed only to the customer but also to all the readers interested in how to develop an analysis using the methodology illustrated above. On the other hand, the second part of our project is a Shiny Dashboard that can be useful to our customer to dynamically answer his questions. Moreover, he can also use this dashboard to broaden and, maybe, question the solutions proposed, creating new possibilities and playing with model features.
+
+The main question of this project were: 
+1. “In the company, we would like to have control of the value of density during the process. Unfortunately, our machines can calculate only chemical concentrations during wine-making. Can you find an easy-to-understand model to estimate the density starting from physicochemical factors?”
+
+2. “Can you create a model that can predict the quality of a wine, given its physicochemical properties? If it is possible, what is the precision of the model, can we rely on it?”
+
+**Question 1**
+
+To solve the first questions three different methods were used: a linear regression, a linear model that was able to parametrise non linearities, and the GAM model. In each case only two predictors were chosen. This is due to the commitment to simplicity of this paper. In fact, more complex linear models were possible. However, the more the predictors, the less the interpretability. Since the aim is to provide a solution that can be easily used, the decision taken by our team is to find all the linear models that can be representable in a plane (therefore, 3D). 
+To answer the question, the solution is dichotomised in an approach for red wine and another one for white wine.
+Concerning red wine, the model selected consists of density as a response and predictors pH and fixed acidity concentration. The R2 adjusted is around 50%, and the significance of each predictor is high enough (p-value close to zero). It could be a trivial way to model the density and find an estimation. Therefore, by employing this method, our customer can have the opportunity to estimate density while producing wine.
+
+The second part of the solution consists in a model for white wines. To satisfy our customer's requests, the designated model is the quadratic model number four. This linear model structure is the following: density as a response, quadratic polynomial function on the first predictor, residual sugar, and a linear second predictor, alcohol.
+In this case, the results are impressive. All the p-values are around zero. Moreover, the R2 adjusted is 92%. Therefore, this model was chosen since it ideally estimates density. Nevertheless, there exists a negative aspect. This model is slightly more complicated than a linear regression model on the same predictors. The suggestion is to use the right tools for prediction, as well as the Shiny App provided. If our customer thinks it could be too complicated, there is strong evidence that even the linear regression model can accurately fit the data (low p-values and 90% of R2 adjusted).
+
+**Question 2**
+
+The second question presents some difficulties that have to be mentioned before giving the solution.
+
+The main problems are:
+
+1. Quality assessments in our dataset are objective. As a result, the machine learning models based on supervised learning can have biassed results.
+
+2. In the document, there are only three different quality classes. It could be not enough to represent the complexity of wine quality.
+
+3. The dataset is strongly unbalanced, having the majority of the records in classes 1 and 2.
+
+4. In this project, only a subset of machine learning methods were tested. It could be crucial to address the problem with different approaches.
+
+For both red and white wine datasets, the radial kernel SVM is the most appropriate result. Through this model, it is possible to reach an overall F1 score of more than 70%.
+This percentage is remarkable. Moreover, it shows that the resulting model can be employed for predicting wine quality, under the supervision of an expert. In particular, the customer can have a dynamic answer to quality assessment in the Shiny App, where there is a dedicated section to test the model.
+
+
+# Shiny
+
+In the last section, the aim is to give some information regarding the main product of this document. The Shiny App is an interactive dashboard that can be used to explore the solutions, examine them, why not, find new possible results. In fact, in this project, the readers had the opportunity to go through **our** solution to the problem. However, it is important to specify that a wine-maker has broader know-how. Indeed, the Shiny App can be a tool to simplify and connect personal knowledge and technology, even for a non-technical audience. 
